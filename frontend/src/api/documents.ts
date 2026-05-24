@@ -18,6 +18,12 @@ export interface DocumentListResponse {
   total: number
 }
 
+export interface AskResponse {
+  answer: string
+  chunks_used: number
+  error: string | null
+}
+
 export const documentsApi = {
   list: () => api.get<DocumentListResponse>('/documents/'),
 
@@ -39,4 +45,7 @@ export const documentsApi = {
   delete: (id: number) => api.delete(`/documents/${id}`),
 
   downloadUrl: (id: number) => `/api/v1/documents/${id}/download`,
+
+  ask: (id: number, question: string) =>
+    api.post<AskResponse>(`/documents/${id}/ask`, { question }),
 }

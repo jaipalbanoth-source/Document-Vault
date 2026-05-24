@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { documentsApi } from '../api/documents'
 import { formatBytes, formatDate, getApiError } from '../utils/helpers'
@@ -14,11 +14,19 @@ import {
   Copy,
   Check,
   Shield,
+  Sparkles,
+  Send,
+  AlertCircle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useQuery } from '@tanstack/react-query'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import ConfirmModal from '../components/ui/ConfirmModal'
+
+interface QAMessage {
+  role: 'user' | 'assistant'
+  content: string
+}
 
 export default function DocumentDetail() {
   const { id } = useParams<{ id: string }>()
@@ -26,6 +34,13 @@ export default function DocumentDetail() {
   const [deleting, setDeleting] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [copied, setCopied] = useState(false)
+
+  // Q&A state
+  const [question, setQuestion] = useState('')
+  const [asking, setAsking] = useState(false)
+  const [messages, setMessages] = useState<QAMessage[]>([])
+  const [qaError, setQaError] = useState<string | null>(null)
+  const bottomRef = useRef<HTMLDivElement>(null)
 
   const { data: doc, isLoading, isError, error } = useQuery({
     queryKey: ['document', id],
@@ -40,6 +55,10 @@ export default function DocumentDetail() {
       navigate('/dashboard')
     }
   }, [isError, error, navigate])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages, asking])
 
   const handleDelete = async () => {
     if (!doc) return
@@ -63,6 +82,33 @@ export default function DocumentDetail() {
       setTimeout(() => setCopied(false), 2000)
     } catch {
       toast.error('Failed to copy text')
+    }
+  }
+
+  const handleAsk = async () => {
+    if (!question.trim() || asking || !doc) return
+    const q = question.trim()
+    setQuestion('')
+    setQaError(null)
+    setMessages((prev) => [...prev, { role: 'user', content: q }])
+    setAsking(true)
+
+    try {
+      const res = await documentsApi.ask(doc.id, q)
+      if (res.data.error) {
+        setQaError(res.data.error)
+        setMessages((prev) => prev.slice(0, -1)) // remove unanswered user msg
+      } else {
+        setMessages((prev) => [
+          ...prev,
+          { role: 'assistant', content: res.data.answer },
+        ])
+      }
+    } catch (err) {
+      setQaError(getApiError(err))
+      setMessages((prev) => prev.slice(0, -1))
+    } finally {
+      setAsking(false)
     }
   }
 
@@ -113,19 +159,11 @@ export default function DocumentDetail() {
               {copied ? 'Copied' : 'Copy text'}
             </button>
           )}
-          <a
-            href={documentsApi.downloadUrl(doc.id)}
-            download={doc.original_name}
-            className="btn-secondary"
-          >
+          <a href={documentsApi.downloadUrl(doc.id)} download={doc.original_name} className="btn-secondary">
             <Download className="w-4 h-4" />
             Download
           </a>
-          <button
-            onClick={() => setShowDeleteModal(true)}
-            disabled={deleting}
-            className="btn-danger"
-          >
+          <button onClick={() => setShowDeleteModal(true)} disabled={deleting} className="btn-danger">
             <Trash2 className="w-4 h-4" />
             Delete
           </button>
@@ -133,11 +171,7 @@ export default function DocumentDetail() {
       </motion.div>
 
       {/* Title */}
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.05 }}
-      >
+      <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}>
         <h1 className="page-title text-2xl sm:text-3xl line-clamp-2" title={doc.original_name}>
           {doc.original_name}
         </h1>
@@ -193,6 +227,7 @@ export default function DocumentDetail() {
           transition={{ delay: 0.15 }}
           className="space-y-6 lg:sticky lg:top-24"
         >
+          {/* Metadata */}
           <div className="card-strong p-6">
             <h3 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">
               Document details
@@ -219,6 +254,109 @@ export default function DocumentDetail() {
             </div>
           </div>
 
+          {/* Q&A Panel */}
+          <div className="card-strong p-0 overflow-hidden">
+            <div className="px-5 py-4 border-b border-white/5 bg-white/[0.02] flex items-center gap-2">
+              <div className="w-7 h-7 rounded-lg bg-brand-500/15 border border-brand-500/20 flex items-center justify-center">
+                <Sparkles className="w-3.5 h-3.5 text-brand-400" />
+              </div>
+              <h3 className="text-sm font-semibold text-white">Ask this document</h3>
+            </div>
+
+            {/* Messages */}
+            <div className="px-4 py-3 space-y-3 max-h-72 overflow-y-auto">
+              {messages.length === 0 && !asking && (
+                <p className="text-xs text-slate-500 text-center py-4 leading-relaxed">
+                  Ask anything about the document content. Powered by RAG + GPT.
+                </p>
+              )}
+
+              <AnimatePresence initial={false}>
+                {messages.map((msg, i) => (
+                  <motion.div
+                    key={i}
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[85%] rounded-xl px-3 py-2 text-xs leading-relaxed ${
+                        msg.role === 'user'
+                          ? 'bg-brand-500/20 text-brand-100 border border-brand-500/20'
+                          : 'bg-white/5 text-slate-200 border border-white/10'
+                      }`}
+                    >
+                      {msg.content}
+                    </div>
+                  </motion.div>
+                ))}
+
+                {asking && (
+                  <motion.div
+                    key="thinking"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex justify-start"
+                  >
+                    <div className="bg-white/5 border border-white/10 rounded-xl px-3 py-2 flex items-center gap-2">
+                      <Loader2 className="w-3 h-3 text-brand-400 animate-spin" />
+                      <span className="text-xs text-slate-400">Thinking...</span>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {qaError && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 rounded-xl px-3 py-2"
+                >
+                  <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                  <p className="text-xs text-red-300 leading-relaxed">{qaError}</p>
+                </motion.div>
+              )}
+
+              <div ref={bottomRef} />
+            </div>
+
+            {/* Input */}
+            <div className="px-4 pb-4 pt-2 border-t border-white/5">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={question}
+                  onChange={(e) => setQuestion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleAsk()
+                    }
+                  }}
+                  placeholder="Ask a question..."
+                  disabled={asking}
+                  className="flex-1 px-3 py-2 bg-white/[0.04] border border-white/10 text-white placeholder-slate-500 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-brand-500/50 focus:border-brand-500/50 disabled:opacity-50 transition-all"
+                />
+                <motion.button
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleAsk}
+                  disabled={!question.trim() || asking}
+                  className="w-9 h-9 flex items-center justify-center rounded-xl bg-brand-500/20 border border-brand-500/30 text-brand-400 hover:bg-brand-500/30 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {asking ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                </motion.button>
+              </div>
+              <p className="text-[10px] text-slate-600 mt-1.5 text-center">
+                Enter to send · Requires OpenAI key on server
+              </p>
+            </div>
+          </div>
+
+          {/* Security badge */}
           <div className="card p-5 border-brand-500/15 bg-brand-500/5">
             <div className="flex items-center gap-2 mb-2">
               <Shield className="w-4 h-4 text-brand-400" />

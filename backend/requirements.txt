@@ -13,3 +13,9 @@ pdfplumber==0.11.0
 pypdf2==3.0.1
 slowapi==0.1.9
 python-dotenv==1.0.1
+
+# RAG deps
+chromadb==0.5.3
+openai>=1.30.0
+tiktoken>=0.7.0
+
