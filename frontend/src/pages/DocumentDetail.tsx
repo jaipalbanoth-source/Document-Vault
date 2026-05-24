@@ -267,7 +267,7 @@ export default function DocumentDetail() {
             <div className="px-4 py-3 space-y-3 max-h-72 overflow-y-auto">
               {messages.length === 0 && !asking && (
                 <p className="text-xs text-slate-500 text-center py-4 leading-relaxed">
-                  Ask anything about the document content. Powered by RAG + GPT.
+                  Ask anything about the document content. Powered by RAG .
                 </p>
               )}
 
