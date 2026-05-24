@@ -6,8 +6,12 @@ from app.models.document import Document
 from app.models.user import User
 from app.schemas.document import DocumentDetail, DocumentListResponse, DocumentOut
 from app.services import pdf_service
+from app.schemas.rag import AskRequest, AskResponse
+from app.services import rag_service
+
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+
 
 
 @router.post("/upload", response_model=DocumentOut, status_code=status.HTTP_201_CREATED)
@@ -88,3 +92,23 @@ def download_document(
         media_type="application/pdf",
         filename=doc.original_name,
     )
+
+@router.post("/{doc_id}/ask", response_model=AskResponse)
+def ask_document(
+    doc_id: int,
+    payload: AskRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    doc = db.query(Document).filter(
+        Document.id == doc_id,
+        Document.user_id == current_user.id,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+
+    if not payload.question.strip():
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Question cannot be empty.")
+
+    result = rag_service.answer_question(doc.extracted_text or "", payload.question)
+    return result
